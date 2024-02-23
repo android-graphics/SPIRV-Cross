@@ -9,7 +9,7 @@ on:
     inputs:
       release_tag:
         description: 'Release tag'
-        default: 'v2023.2'
+        default: 'vulkan-sdk-1.3.275.0'
         required: true
         type: string
 
