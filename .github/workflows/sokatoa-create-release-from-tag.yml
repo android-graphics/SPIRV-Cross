@@ -1,0 +1,90 @@
+name: Sokatoa create release from tag
+
+permissions:
+  contents: write
+  
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag'
+        default: 'v2023.2'
+        required: true
+        type: string
+
+jobs:
+  create_release:
+    name: Create Release
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Create Release
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: ${{ github.event.inputs.RELEASE_TAG }}
+          tag_name: ${{ github.event.inputs.RELEASE_TAG }}
+          draft: false
+          prerelease: false
+          generate_release_notes: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  build:
+    name: ${{ matrix.os }}
+    needs: create_release
+    strategy:
+      fail-fast: false
+      matrix:
+        # free runners
+        os: [windows-2019, ubuntu-20.04]
+
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.RELEASE_TAG }}
+
+      - name: Build
+        shell: bash
+        run: |
+          python3 utils/git-sync-deps
+          mkdir build
+          cd build
+          cmake ../ -DSPIRV_SKIP_TESTS=ON -DCMAKE_BUILD_TYPE=Release
+          cmake --build . --config Release -j 12
+
+      - name: Archive results
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          mkdir ${{ github.event.inputs.RELEASE_TAG }}
+          cp build/spirv-cross ${{ github.event.inputs.RELEASE_TAG }}
+          tar -czvf ${{ github.event.inputs.RELEASE_TAG }}.tar.gz -C ${{ github.event.inputs.RELEASE_TAG }} `ls -A ${{ github.event.inputs.RELEASE_TAG }}`
+
+      - name: Archive results
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          mkdir ${{ github.event.inputs.RELEASE_TAG }}
+          cp build/Release/spirv-cross.exe ${{ github.event.inputs.RELEASE_TAG }}
+          7z a -r ${{ github.event.inputs.RELEASE_TAG }}.zip ./${{ github.event.inputs.RELEASE_TAG }}/*
+
+      - name: Upload artifacts
+        if: runner.os == 'Linux'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.event.inputs.RELEASE_TAG }}
+          files: ${{ github.event.inputs.RELEASE_TAG }}.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifacts
+        if: runner.os == 'Windows'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.event.inputs.RELEASE_TAG }}
+          files: ${{ github.event.inputs.RELEASE_TAG }}.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
