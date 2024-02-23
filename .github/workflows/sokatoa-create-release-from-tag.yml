@@ -4,7 +4,6 @@ permissions:
   contents: write
   
 on:
-  pull_request: #TODO
   workflow_dispatch:
     inputs:
       release_tag:
@@ -50,10 +49,9 @@ jobs:
       - name: Build
         shell: bash
         run: |
-          python3 utils/git-sync-deps
           mkdir build
           cd build
-          cmake ../ -DSPIRV_SKIP_TESTS=ON -DCMAKE_BUILD_TYPE=Release
+          cmake ../ -DSPIRV_CROSS_ENABLE_TESTS=OFF -DCMAKE_BUILD_TYPE=Release
           cmake --build . --config Release -j 12
 
       - name: Archive results
