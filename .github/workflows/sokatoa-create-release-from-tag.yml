@@ -53,6 +53,7 @@ jobs:
           cd build
           cmake ../ -DSPIRV_CROSS_FORCE_PIC=ON -DSPIRV_CROSS_ENABLE_TESTS=OFF -DCMAKE_BUILD_TYPE=Release
           cmake --build . --config Release -j 12
+          find .
 
       - name: Archive results
         if: runner.os != 'Windows'
