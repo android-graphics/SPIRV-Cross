@@ -51,7 +51,7 @@ jobs:
         run: |
           mkdir build
           cd build
-          cmake ../ -DSPIRV_CROSS_FORCE_PIC=ON -DSPIRV_CROSS_ENABLE_TESTS=OFF -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=$(ARCHS_STANDARD)
+          cmake ../ -DSPIRV_CROSS_FORCE_PIC=ON -DSPIRV_CROSS_ENABLE_TESTS=OFF -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
           cmake --build . --config Release -j 12
           find .
 
