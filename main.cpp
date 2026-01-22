@@ -47,7 +47,7 @@
 #include "gitversion.h"
 #endif
 
-using namespace spv;
+using namespace SPIRV_CROSS_SPV_HEADER_NAMESPACE;
 using namespace SPIRV_CROSS_NAMESPACE;
 using namespace std;
 
@@ -285,7 +285,7 @@ static bool write_string_to_file(const char *path, const char *string)
 #pragma warning(pop)
 #endif
 
-static void print_resources(const Compiler &compiler, spv::StorageClass storage,
+static void print_resources(const Compiler &compiler, StorageClass storage,
                             const SmallVector<BuiltInResource> &resources)
 {
 	fprintf(stderr, "%s\n", storage == StorageClassInput ? "builtin inputs" : "builtin outputs");
@@ -326,12 +326,12 @@ static void print_resources(const Compiler &compiler, spv::StorageClass storage,
 		string builtin_str;
 		switch (res.builtin)
 		{
-		case spv::BuiltInPosition: builtin_str = "Position"; break;
-		case spv::BuiltInPointSize: builtin_str = "PointSize"; break;
-		case spv::BuiltInCullDistance: builtin_str = "CullDistance"; break;
-		case spv::BuiltInClipDistance: builtin_str = "ClipDistance"; break;
-		case spv::BuiltInTessLevelInner: builtin_str = "TessLevelInner"; break;
-		case spv::BuiltInTessLevelOuter: builtin_str = "TessLevelOuter"; break;
+		case BuiltInPosition: builtin_str = "Position"; break;
+		case BuiltInPointSize: builtin_str = "PointSize"; break;
+		case BuiltInCullDistance: builtin_str = "CullDistance"; break;
+		case BuiltInClipDistance: builtin_str = "ClipDistance"; break;
+		case BuiltInTessLevelInner: builtin_str = "TessLevelInner"; break;
+		case BuiltInTessLevelOuter: builtin_str = "TessLevelOuter"; break;
 		default: builtin_str = string("builtin #") + to_string(res.builtin);
 		}
 
@@ -421,13 +421,13 @@ static void print_resources(const Compiler &compiler, const char *tag, const Sma
 	fprintf(stderr, "=============\n\n");
 }
 
-static const char *execution_model_to_str(spv::ExecutionModel model)
+static const char *execution_model_to_str(ExecutionModel model)
 {
 	switch (model)
 	{
-	case spv::ExecutionModelVertex:
+	case ExecutionModelVertex:
 		return "vertex";
-	case spv::ExecutionModelTessellationControl:
+	case ExecutionModelTessellationControl:
 		return "tessellation control";
 	case ExecutionModelTessellationEvaluation:
 		return "tessellation evaluation";
@@ -536,9 +536,10 @@ static void print_resources(const Compiler &compiler, const ShaderResources &res
 	print_resources(compiler, "push", res.push_constant_buffers);
 	print_resources(compiler, "counters", res.atomic_counters);
 	print_resources(compiler, "acceleration structures", res.acceleration_structures);
+	print_resources(compiler, "tensors", res.tensors);
 	print_resources(compiler, "record buffers", res.shader_record_buffers);
-	print_resources(compiler, spv::StorageClassInput, res.builtin_inputs);
-	print_resources(compiler, spv::StorageClassOutput, res.builtin_outputs);
+	print_resources(compiler, StorageClassInput, res.builtin_inputs);
+	print_resources(compiler, StorageClassOutput, res.builtin_outputs);
 }
 
 static void print_push_constant_resources(const Compiler &compiler, const SmallVector<Resource> &res)
@@ -682,6 +683,10 @@ struct CLIArguments
 	bool msl_readwrite_texture_fences = true;
 	bool msl_agx_manual_cube_grad_fixup = false;
 	bool msl_input_attachment_is_ds_attachment = false;
+	bool msl_disable_rasterization = false;
+	bool msl_auto_disable_rasterization = false;
+	bool msl_enable_point_size_default = false;
+	float msl_default_point_size = 1.0f;
 	const char *msl_combined_sampler_suffix = nullptr;
 	bool glsl_emit_push_constant_as_ubo = false;
 	bool glsl_emit_ubo_as_plain_uniforms = false;
@@ -739,6 +744,7 @@ struct CLIArguments
 	bool hlsl_enable_16bit_types = false;
 	bool hlsl_flatten_matrix_vertex_input_semantics = false;
 	bool hlsl_preserve_structured_buffers = false;
+	bool hlsl_user_semantic = false;
 	HLSLBindingFlags hlsl_binding_flags = 0;
 	bool vulkan_semantics = false;
 	bool flatten_multidimensional_arrays = false;
@@ -847,6 +853,7 @@ static void print_help_hlsl()
 	                "\t[--hlsl-enable-16bit-types]:\n\t\tEnables native use of half/int16_t/uint16_t and ByteAddressBuffer interaction with these types. Requires SM 6.2.\n"
 	                "\t[--hlsl-flatten-matrix-vertex-input-semantics]:\n\t\tEmits matrix vertex inputs with input semantics as if they were independent vectors, e.g. TEXCOORD{2,3,4} rather than matrix form TEXCOORD2_{0,1,2}.\n"
 	                "\t[--hlsl-preserve-structured-buffers]:\n\t\tEmit SturucturedBuffer<T> rather than ByteAddressBuffer. Requires UserTypeGOOGLE to be emitted. Intended for DXC roundtrips.\n"
+	                "\t[--hlsl-user-semantic]:\n\t\tUses UserSemantic decoration to generate vertex input and output semantics.\n"
 	);
 	// clang-format on
 }
@@ -983,7 +990,10 @@ static void print_help_msl()
 	                "\t\tAll released Apple Silicon GPUs to date ignore one of the three partial derivatives\n"
 	                "\t\tbased on the selected major axis, and expect the remaining derivatives to be\n"
 	                "\t\tpartially transformed. This fixup gives correct results on Apple Silicon.\n"
-	                "\t[--msl-combined-sampler-suffix <suffix>]:\n\t\tUses a custom suffix for combined samplers.\n");
+	                "\t[--msl-combined-sampler-suffix <suffix>]:\n\t\tUses a custom suffix for combined samplers.\n"
+	                "\t[--msl-disable-rasterization]:\n\t\tDisables rasterization and returns void from vertex-like entry points.\n"
+	                "\t[--msl-auto-disable-rasterization]:\n\t\tDisables rasterization if BuiltInPosition is not written.\n"
+	                "\t[--msl-default-point-size <size>]:\n\t\tApplies a default value if BuiltInPointSize is not written.\n");
 	// clang-format on
 }
 
@@ -1167,9 +1177,9 @@ static ExecutionModel stage_to_execution_model(const std::string &stage)
 	else if (stage == "rcall")
 		return ExecutionModelCallableKHR;
 	else if (stage == "mesh")
-		return spv::ExecutionModelMeshEXT;
+		return ExecutionModelMeshEXT;
 	else if (stage == "task")
-		return spv::ExecutionModelTaskEXT;
+		return ExecutionModelTaskEXT;
 	else
 		SPIRV_CROSS_THROW("Invalid stage.");
 }
@@ -1265,6 +1275,10 @@ static string compile_iteration(const CLIArguments &args, std::vector<uint32_t> 
 		msl_opts.input_attachment_is_ds_attachment = args.msl_input_attachment_is_ds_attachment;
 		msl_opts.readwrite_texture_fences = args.msl_readwrite_texture_fences;
 		msl_opts.agx_manual_cube_grad_fixup = args.msl_agx_manual_cube_grad_fixup;
+		msl_opts.disable_rasterization = args.msl_disable_rasterization;
+		msl_opts.auto_disable_rasterization = args.msl_auto_disable_rasterization;
+		msl_opts.enable_point_size_default = args.msl_enable_point_size_default;
+		msl_opts.default_point_size = args.msl_default_point_size;
 		msl_comp->set_msl_options(msl_opts);
 		for (auto &v : args.msl_discrete_descriptor_sets)
 			msl_comp->add_discrete_descriptor_set(v);
@@ -1459,6 +1473,7 @@ static string compile_iteration(const CLIArguments &args, std::vector<uint32_t> 
 		hlsl_opts.enable_16bit_types = args.hlsl_enable_16bit_types;
 		hlsl_opts.flatten_matrix_vertex_input_semantics = args.hlsl_flatten_matrix_vertex_input_semantics;
 		hlsl_opts.preserve_structured_buffers = args.hlsl_preserve_structured_buffers;
+		hlsl_opts.user_semantic = args.hlsl_user_semantic;
 		hlsl->set_hlsl_options(hlsl_opts);
 		hlsl->set_resource_binding_flags(args.hlsl_binding_flags);
 		if (args.hlsl_base_vertex_index_explicit_binding)
@@ -1661,6 +1676,7 @@ static int main_inner(int argc, char *argv[])
 	cbs.add("--hlsl-flatten-matrix-vertex-input-semantics",
 	        [&args](CLIParser &) { args.hlsl_flatten_matrix_vertex_input_semantics = true; });
 	cbs.add("--hlsl-preserve-structured-buffers", [&args](CLIParser &) { args.hlsl_preserve_structured_buffers = true; });
+	cbs.add("--hlsl-user-semantic", [&args](CLIParser &) { args.hlsl_user_semantic = true; });
 	cbs.add("--vulkan-semantics", [&args](CLIParser &) { args.vulkan_semantics = true; });
 	cbs.add("-V", [&args](CLIParser &) { args.vulkan_semantics = true; });
 	cbs.add("--flatten-multidimensional-arrays", [&args](CLIParser &) { args.flatten_multidimensional_arrays = true; });
@@ -1830,6 +1846,12 @@ static int main_inner(int argc, char *argv[])
 	cbs.add("--msl-replace-recursive-inputs",
 	        [&args](CLIParser &) { args.msl_replace_recursive_inputs = true; });
 	cbs.add("--msl-input-attachment-is-ds-attachment", [&args](CLIParser &) { args.msl_input_attachment_is_ds_attachment = true; });
+	cbs.add("--msl-disable-rasterization", [&args](CLIParser &) { args.msl_disable_rasterization = true; });
+	cbs.add("--msl-auto-disable-rasterization", [&args](CLIParser &) { args.msl_auto_disable_rasterization = true; });
+	cbs.add("--msl-default-point-size", [&args](CLIParser &parser) {
+		args.msl_enable_point_size_default = true;
+		args.msl_default_point_size = static_cast<float>(parser.next_double());
+	});
 	cbs.add("--extension", [&args](CLIParser &parser) { args.extensions.push_back(parser.next_string()); });
 	cbs.add("--rename-entry-point", [&args](CLIParser &parser) {
 		auto old_name = parser.next_string();
